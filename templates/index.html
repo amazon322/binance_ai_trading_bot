@@ -1,0 +1,12 @@
+<!-- binance_ai_trading_bot/templates/index.html -->
+{% extends 'base.html' %}
+
+{% block title %}Home | Binance AI Trading Bot{% endblock %}
+
+{% block content %}
+<div class="jumbotron text-center">
+    <h1 class="display-4">Welcome to the Binance AI Trading Bot</h1>
+    <p class="lead">Automate your cryptocurrency trading with advanced AI models.</p>
+    <a class="btn btn-primary btn-lg" href="{{ url_for('main_routes.dashboard') }}" role="button">Go to Dashboard</a>
+</div>
+{% endblock %}

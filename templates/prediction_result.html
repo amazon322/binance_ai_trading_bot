@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block title %}Prediction Result | Binance AI Trading Bot{% endblock %}
+
+{% block content %}
+<h2>Prediction Result for {{ coin }}</h2>
+
+<p><strong>Forecast Horizon:</strong> Next {{ predicted_prices|length }} time steps</p>
+
+<!-- Include the plot of predicted prices -->
+<h3>Predicted Price Trend:</h3>
+<img src="data:image/png;base64,{{ plot_url|safe }}" alt="Predicted Prices Plot" style="max-width: 100%; height: auto;">
+<!-- Predicted prices list -->
+<h3>Predicted Prices:</h3>
+<ul>
+    {% for price in predicted_prices %}
+        <li>{{ price }}</li>
+    {% endfor %}
+</ul>
+
+<p><strong>Predicted High:</strong> {{ predicted_high }}</p>
+<p><strong>Predicted Low:</strong> {{ predicted_low }}</p>
+
+<p><strong>Market Sentiment:</strong> {{ sentiment_label }}</p>
+
+<!-- Display related news articles in a table format -->
+{% if articles %}
+    <h3>Related News Articles</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Article Title</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for article in articles %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ article }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No news articles found for {{ coin }}.</p>
+{% endif %}
+
+<form method="POST" action="{{ url_for('main_routes.confirm_buy') }}">
+    <input type="hidden" name="coin" value="{{ coin }}">
+    <input type="hidden" name="predicted_price" value="{{ predicted_prices[-1] }}">
+    <button type="submit" class="btn btn-success">Proceed to Buy</button>
+</form>
+
+{% endblock %}

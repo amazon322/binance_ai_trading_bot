@@ -1,0 +1,9 @@
+Flask
+pandas
+numpy
+torch
+statsmodels
+arch
+binance-python
+scikit-learn
+ta

@@ -1,0 +1,21 @@
+<!-- templates/confirm_buy.html -->
+
+{% extends 'base.html' %}
+
+{% block title %}Confirm Buy Order | Binance AI Trading Bot{% endblock %}
+
+{% block content %}
+<h2>Confirm Buy Order</h2>
+<p>You are about to place a buy order for <strong>{{ coin }}</strong> at the predicted price of <strong>{{ predicted_price }}</strong>.</p>
+
+<form method="POST" action="{{ url_for('main_routes.place_order') }}">
+    <input type="hidden" name="coin" value="{{ coin }}">
+    <!-- You may include fields like quantity, price, etc. -->
+    <div class="form-group">
+        <label for="quantity">Quantity to Buy</label>
+        <input type="number" step="any" class="form-control" id="quantity" name="quantity" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Place Order</button>
+</form>
+
+{% endblock %}
