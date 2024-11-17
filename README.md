@@ -113,13 +113,9 @@ http://127.0.0.1:5000/
 
 ## 🧠 Models Supported
 - **LSTM**: Long Short-Term Memory
-- **GRU**: Gated Recurrent Unit
-- **RNN**: Recurrent Neural Network
-- **CNN**: Convolutional Neural Network
 - **CNN-LSTM**: Hybrid Convolutional-LSTM Model
-- **ARIMA**: AutoRegressive Integrated Moving Average
-- **GARCH**: Generalized Autoregressive Conditional Heteroskedasticity
 - **Transformer**: Attention-based Neural Network
+- **Prophet**:High-performance solution for time-series forecasting
 
 ---
 
