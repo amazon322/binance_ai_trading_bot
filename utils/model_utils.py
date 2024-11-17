@@ -381,9 +381,9 @@ def predict_with_cnn_lstm(model_info, scaler, input_sequence, forecast_horizon, 
 
 # utils/model_utils.py
 
-def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device,coin=None):
+def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device, coin=None):
+    # Extract model parameters
     from models.transformer import TimeSeriesTransformer
-    
     input_size = model_info['input_size']
     model_params = model_info['model_params']
 
@@ -410,17 +410,27 @@ def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizo
     with torch.no_grad():
         for _ in range(forecast_horizon):
             input_tensor = torch.from_numpy(input_seq).float().to(device)
-            # For Transformer, the tgt sequence is the previous predictions
-            pred = model(input_tensor, tgt_input)
-            pred_value = pred.cpu().numpy()[0][0]
-            predictions.append(pred_value)
-            # Update input sequence for next prediction
-            input_seq = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
+            # For Transformer, the target sequence is the previous predictions
+            pred = model(input_tensor, tgt_input)  # Shape: [batch_size, tgt_seq_len, output_size]
+            # Extract the last predicted value
+            pred_value = pred[:, -1, :]  # Shape: [batch_size, output_size]
+
+            # Append the prediction to the list
+            predictions.append(pred_value.cpu().numpy())
+
+            # Update the input sequence for the next time step
+            # Remove the first time step and append the new prediction
+            pred_value_np = pred_value.cpu().numpy().reshape(input_seq.shape[0], 1, input_seq.shape[2])
+            input_seq = np.concatenate((input_seq[:, 1:, :], pred_value_np), axis=1)
+
             # Update tgt_input with the latest prediction
-            tgt_input = torch.from_numpy(np.array([[[pred_value]]])).float().to(device)
+            tgt_input = pred_value.unsqueeze(1)  # Shape: [batch_size, 1, output_size]
+
+    # Concatenate all predictions
+    predictions = np.concatenate(predictions, axis=0)  # Shape: [forecast_horizon, output_size]
 
     # Inverse transform the predictions
-    predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+    predictions = scaler.inverse_transform(predictions)
     predicted_prices = predictions.flatten()
 
     return predicted_prices

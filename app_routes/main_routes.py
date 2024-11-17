@@ -297,8 +297,6 @@ def prediction():
                     input_sequence = scaled_data[-sequence_length:]
                     input_sequence = np.expand_dims(input_sequence, axis=0)
 
-                    # Forecast horizon (number of future steps to predict)
-                    forecast_horizon = 1  # Adjust as needed
 
                     # Make predictions
                     predicted_prices = make_predictions(
