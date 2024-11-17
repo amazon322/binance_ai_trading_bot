@@ -2,12 +2,15 @@
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import math
 import os
 import logging
 import numpy as np
 import joblib
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import logging
+import matplotlib.pyplot as plt
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim_model, dropout=0.1, max_len=5000):
@@ -81,36 +84,30 @@ class TimeSeriesTransformer(nn.Module):
         return output
 
 def train_transformer_model(
-    X_train,
-    y_train,
-    X_val,
-    y_val,
-    epochs,
-    batch_size,
-    learning_rate,
-    model_save_path,
-    model_name,
-    scaler,
-    input_size,
-    sequence_length,
-    num_heads=8,
-    num_layers=2,
-    dim_feedforward=512,
-    dropout=0.1,
-    weight_decay=0.0,
-    dim_model=128  # Ensure dim_model is divisible by num_heads
+    X_train, y_train, X_val, y_val,
+    epochs, batch_size, learning_rate,
+    model_save_path, model_name
 ):
     try:
         logging.info("Starting Transformer model training...")
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Convert data to PyTorch tensors
-        X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
-        y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(device)
-        X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
-        y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(device)
+        input_size = X_train.shape[2]
+        sequence_length = X_train.shape[1]
+
+        # Adjusted hyperparameters
+        num_layers = 2  # Experiment with 2, 3, or 4
+        dim_model = 128  # Should be divisible by num_heads
+        num_heads = 4
+        dim_feedforward = 256
+        dropout = 0.2  # Increased dropout to prevent overfitting
+
+        # Set seeds for reproducibility
+        torch.manual_seed(42)
+        np.random.seed(42)
 
         # Initialize the model
+        from models.transformer import TimeSeriesTransformer  # Ensure correct import
         model = TimeSeriesTransformer(
             input_size=input_size,
             num_encoder_layers=num_layers,
@@ -118,13 +115,31 @@ def train_transformer_model(
             dim_model=dim_model,
             num_heads=num_heads,
             dim_feedforward=dim_feedforward,
-            dropout=dropout,
+            dropout=dropout
         ).to(device)
 
         # Define loss function and optimizer
-        criterion = nn.MSELoss()
-        optimizer = torch.optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        criterion = nn.SmoothL1Loss()  # Huber loss
+        optimizer = optim.Adam(
+            model.parameters(), lr=learning_rate, weight_decay=1e-5
+        )
+
+        # Learning rate scheduler
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
+        # Prepare data loaders
+        train_dataset = torch.utils.data.TensorDataset(
+            torch.Tensor(X_train), torch.Tensor(y_train)
+        )
+        val_dataset = torch.utils.data.TensorDataset(
+            torch.Tensor(X_val), torch.Tensor(y_val)
+        )
+
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=batch_size
         )
 
         # Lists to store losses
@@ -134,112 +149,70 @@ def train_transformer_model(
         # Training loop
         for epoch in range(epochs):
             model.train()
-            epoch_train_losses = []
-            for i in range(0, X_train_tensor.size(0), batch_size):
-                src = X_train_tensor[i : i + batch_size]
-                tgt = y_train_tensor[i : i + batch_size].unsqueeze(-1)
-                tgt_input = src[:, -sequence_length // 2:, :]
-
+            batch_train_losses = []
+            for X_batch, y_batch in train_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 optimizer.zero_grad()
-                output = model(src, tgt_input)
-                loss = criterion(output[:, -1, 0], tgt.squeeze())
+                outputs = model(X_batch)
+                loss = criterion(outputs.squeeze(), y_batch)
                 loss.backward()
+                # Gradient clipping
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                epoch_train_losses.append(loss.item())
+                batch_train_losses.append(loss.item())
 
-            avg_train_loss = np.mean(epoch_train_losses)
-            train_losses.append(avg_train_loss)
+            average_train_loss = np.mean(batch_train_losses)
+            train_losses.append(average_train_loss)
 
-            # Validation
+            # Validation step
             model.eval()
-            epoch_val_losses = []
+            batch_val_losses = []
             with torch.no_grad():
-                for i in range(0, X_val_tensor.size(0), batch_size):
-                    src = X_val_tensor[i : i + batch_size]
-                    tgt = y_val_tensor[i : i + batch_size].unsqueeze(-1)
-                    tgt_input = src[:, -sequence_length // 2:, :]
+                for X_batch, y_batch in val_loader:
+                    X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                    outputs = model(X_batch)
+                    loss = criterion(outputs.squeeze(), y_batch)
+                    batch_val_losses.append(loss.item())
 
-                    val_output = model(src, tgt_input)
-                    val_loss = criterion(val_output[:, -1, 0], tgt.squeeze())
-                    epoch_val_losses.append(val_loss.item())
+            average_val_loss = np.mean(batch_val_losses)
+            val_losses.append(average_val_loss)
 
-            avg_val_loss = np.mean(epoch_val_losses)
-            val_losses.append(avg_val_loss)
+            # Adjust the learning rate
+            scheduler.step()
 
             logging.info(
                 f"Epoch [{epoch+1}/{epochs}], "
-                f"Train Loss: {avg_train_loss:.6f}, "
-                f"Val Loss: {avg_val_loss:.6f}"
+                f"Train Loss: {average_train_loss:.6f}, "
+                f"Val Loss: {average_val_loss:.6f}"
             )
 
-        # Evaluate the model on the entire training and validation sets
-        model.eval()
-        with torch.no_grad():
-            # Training data predictions
-            src_train = X_train_tensor
-            tgt_input_train = src_train[:, -sequence_length // 2:, :]
-            train_pred = model(src_train, tgt_input_train)
-            train_pred = train_pred[:, -1, 0].cpu().numpy()
-            y_train_actual = y_train_tensor.cpu().numpy()
-
-            # Validation data predictions
-            src_val = X_val_tensor
-            tgt_input_val = src_val[:, -sequence_length // 2:, :]
-            val_pred = model(src_val, tgt_input_val)
-            val_pred = val_pred[:, -1, 0].cpu().numpy()
-            y_val_actual = y_val_tensor.cpu().numpy()
-
-            # Inverse transform the predictions if needed
-            # If y_train and y_val were scaled, inverse transform them
-            y_train_actual = scaler.inverse_transform(y_train_actual.reshape(-1, 1)).flatten()
-            train_pred = scaler.inverse_transform(train_pred.reshape(-1, 1)).flatten()
-            y_val_actual = scaler.inverse_transform(y_val_actual.reshape(-1, 1)).flatten()
-            val_pred = scaler.inverse_transform(val_pred.reshape(-1, 1)).flatten()
-
-            # Calculate metrics
-            mse_train = mean_squared_error(y_train_actual, train_pred)
-            mae_train = mean_absolute_error(y_train_actual, train_pred)
-            rmse_train = np.sqrt(mse_train)
-
-            mse_val = mean_squared_error(y_val_actual, val_pred)
-            mae_val = mean_absolute_error(y_val_actual, val_pred)
-            rmse_val = np.sqrt(mse_val)
-
-            print(f"\nFinal Training Metrics:")
-            print(f"Train MSE: {mse_train:.4f}")
-            print(f"Train MAE: {mae_train:.4f}")
-            print(f"Train RMSE: {rmse_train:.4f}")
-
-            print(f"\nFinal Validation Metrics:")
-            print(f"Validation MSE: {mse_val:.4f}")
-            print(f"Validation MAE: {mae_val:.4f}")
-            print(f"Validation RMSE: {rmse_val:.4f}")
-
-        # Save the trained model
+        # Save the trained model information
         model_info = {
             "input_size": input_size,
             "sequence_length": sequence_length,
             "state_dict": model.state_dict(),
             "model_params": {
-                "num_encoder_layers": num_layers,  # Use num_layers for both encoder and decoder
+                "num_encoder_layers": num_layers,
                 "num_decoder_layers": num_layers,
                 "dim_model": dim_model,
-                "dim_feedforward": dim_feedforward,
                 "num_heads": num_heads,
+                "dim_feedforward": dim_feedforward,
                 "dropout": dropout,
-                # 'batch_first' is not needed here
             },
         }
-
         os.makedirs(model_save_path, exist_ok=True)
         torch.save(model_info, os.path.join(model_save_path, model_name))
-
-        # Save the scaler
-        scaler_filename = os.path.join(
-            model_save_path, f"scaler_{model_name.split('.')[0]}.pkl"
-        )
-        joblib.dump(scaler, scaler_filename)
         logging.info("Transformer model training completed and saved successfully.")
+
+        # Optional: Plot training and validation loss over epochs
+        plt.figure(figsize=(10,5))
+        plt.plot(range(1, epochs+1), train_losses, label='Train Loss')
+        plt.plot(range(1, epochs+1), val_losses, label='Validation Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Transformer Model Training and Validation Loss')
+        plt.legend()
+        plt.show()
 
     except Exception as e:
         logging.exception("An error occurred during Transformer model training.")
