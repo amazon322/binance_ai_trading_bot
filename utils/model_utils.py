@@ -383,7 +383,7 @@ def predict_with_cnn_lstm(model_info, scaler, input_sequence, forecast_horizon, 
 
 def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device):
     from models.transformer import TimeSeriesTransformer
-
+    
     input_size = model_info['input_size']
     model_params = model_info['model_params']
 
@@ -404,20 +404,27 @@ def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizo
     predictions = []
     input_seq = input_sequence.copy()
 
+    # Initialize tgt_input for the decoder
+    tgt_input = torch.zeros((input_seq.shape[0], 1, input_seq.shape[2])).to(device)
+
     with torch.no_grad():
         for _ in range(forecast_horizon):
             input_tensor = torch.from_numpy(input_seq).float().to(device)
-            pred = model(input_tensor)
+            # For Transformer, the tgt sequence is the previous predictions
+            pred = model(input_tensor, tgt_input)
             pred_value = pred.cpu().numpy()[0][0]
             predictions.append(pred_value)
-            # Append the prediction to the input sequence for the next step
-            next_input = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
-            input_seq = next_input
+            # Update input sequence for next prediction
+            input_seq = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
+            # Update tgt_input with the latest prediction
+            tgt_input = torch.from_numpy(np.array([[[pred_value]]])).float().to(device)
 
     # Inverse transform the predictions
     predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
     predicted_prices = predictions.flatten()
+
     return predicted_prices
+
 
 # utils/model_utils.py
 

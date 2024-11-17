@@ -137,17 +137,14 @@ def train_model():
                     y_val=y_val,
                     epochs=epochs,
                     batch_size=batch_size,
-                    learning_rate=0.001,
+                    learning_rate=learning_rate,
                     model_save_path=Config.MODEL_SAVE_PATH,
                     model_name=f'{model_type}_{coin}.pth',
-                    scaler=scaler,
-                    input_size=input_size,
-                    sequence_length=sequence_length,  # Use the same sequence length used during preprocessing
-                    num_heads=8,                      # Number of attention heads
-                    num_layers=2,                     # Number of encoder and decoder layers
-                    dim_feedforward=256,              # Feedforward dimension inside the Transformer
-                    dim_model=128                     # Passing 'dim_model' here
+                    scaler=scaler
+                    # Removed 'sequence_length'
                 )
+
+
 
             elif model_type.lower() == 'prophet':
                 # Prophet model training
@@ -276,24 +273,43 @@ def prediction():
 
 
                 elif model_type.lower() == 'transformer':
-                    # Load scaler
+                    from models.transformer import TimeSeriesTransformer  # Ensure correct import
+
+                    # Load the scaler
+                    scaler_file = os.path.join(Config.MODEL_SAVE_PATH, f'scaler_{model_type}_{coin}.pkl')
+                    if not os.path.exists(scaler_file):
+                        flash("Scaler file not found. Please retrain the model.")
+                        return redirect(url_for('main_routes.train_model'))
                     scaler = joblib.load(scaler_file)
-                    # Load model_info
+
+                    # Load model info
                     model_info = torch.load(model_file_path, map_location=device)
-                    sequence_length = model_info['sequence_length']
-                    # Prepare input sequence
+
+                    # Scale data
                     scaled_data = scaler.transform(data_series)
+
+                    # Prepare input sequence
+                    sequence_length = model_info['sequence_length']
+                    if len(scaled_data) < sequence_length:
+                        flash("Insufficient data for making a prediction.")
+                        return redirect(url_for('main_routes.prediction'))
+
                     input_sequence = scaled_data[-sequence_length:]
                     input_sequence = np.expand_dims(input_sequence, axis=0)
+
+                    # Forecast horizon (number of future steps to predict)
+                    forecast_horizon = 1  # Adjust as needed
+
                     # Make predictions
                     predicted_prices = make_predictions(
-                        model_type='transformer',
+                        model_type=model_type.lower(),
                         model_info=model_info,
                         scaler=scaler,
-                        data_series=data_series,
+                        data_series=scaled_data,
                         input_sequence=input_sequence,
                         forecast_horizon=forecast_horizon,
-                        device=device
+                        device=device,
+                        coin=coin
                     )
                 elif model_type.lower() == 'prophet':
                     # Load model
