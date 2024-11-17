@@ -137,7 +137,7 @@ def prepare_prediction_data(df, scaler, model_info, data_processor, sequence_len
     input_sequence = np.expand_dims(input_sequence, axis=0)
     return input_sequence
 
-def make_predictions(model_type, model_info, scaler, data_series, input_sequence, forecast_horizon, device):
+def make_predictions(model_type, model_info, scaler, data_series, input_sequence, forecast_horizon, device,coin = None):
     """
     Makes predictions using the specified model type.
 
@@ -163,7 +163,7 @@ def make_predictions(model_type, model_info, scaler, data_series, input_sequence
         )
     elif model_type == 'transformer':
         predicted_prices = predict_with_transformer(
-            model_info, scaler, input_sequence, forecast_horizon, device
+            model_info, scaler, input_sequence, forecast_horizon, device,coin=coin
         )
     else:
         raise ValueError(f"Prediction for model '{model_type}' is not implemented.")
@@ -381,7 +381,7 @@ def predict_with_cnn_lstm(model_info, scaler, input_sequence, forecast_horizon, 
 
 # utils/model_utils.py
 
-def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device):
+def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device,coin=None):
     from models.transformer import TimeSeriesTransformer
     
     input_size = model_info['input_size']

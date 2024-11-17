@@ -60,12 +60,16 @@ class TimeSeriesTransformer(nn.Module):
     def forward(self, src, tgt):
         src_emb = self.embedding(src)  # Shape: [batch_size, src_seq_len, dim_model]
         tgt_emb = self.embedding(tgt)  # Shape: [batch_size, tgt_seq_len, dim_model]
+        
         src_emb = self.pos_encoder(src_emb)
         tgt_emb = self.pos_encoder(tgt_emb)
+        
         output = self.transformer(src_emb, tgt_emb)
-        output = self.fc_out(output[:, -1, :])  # Taking the last output
+        output = self.fc_out(output)  # Shape: [batch_size, tgt_seq_len, output_size]
         return output
 
+
+    # models/transformer.py
 
 def train_transformer_model(
     X_train, y_train, X_val, y_val,
@@ -80,16 +84,12 @@ def train_transformer_model(
         input_size = X_train.shape[2]
         sequence_length = X_train.shape[1]
 
-        # Adjusted hyperparameters
-        num_layers = 2  # Experiment with different values
-        dim_model = 128  # Should be divisible by num_heads
+        # Transformer hyperparameters
+        num_layers = 2
+        dim_model = 128
         num_heads = 4
         dim_feedforward = 256
-        dropout = 0.2  # Increased dropout to prevent overfitting
-
-        # Set seeds for reproducibility
-        torch.manual_seed(42)
-        np.random.seed(42)
+        dropout = 0.2
 
         # Initialize the model
         model = TimeSeriesTransformer(
@@ -102,37 +102,33 @@ def train_transformer_model(
             dropout=dropout
         ).to(device)
 
-        # Define loss function and optimizer
-        criterion = nn.SmoothL1Loss()  # Huber loss
-        optimizer = optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=1e-5
-        )
+        # Function to create target sequences
+        def create_tgt_sequences(y, seq_len):
+            tgt_input = []
+            tgt_target = []
+            for i in range(len(y) - seq_len):
+                tgt_input.append(y[i:i + seq_len])
+                tgt_target.append(y[i + 1:i + seq_len + 1])
+            return np.array(tgt_input), np.array(tgt_target)
 
-        # Learning rate scheduler
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        # Flatten y_train and y_val
+        y_train_flat = y_train.flatten()
+        y_val_flat = y_val.flatten()
 
-        # Prepare data loaders
-        # For Transformers, we need both src (input sequence) and tgt (target sequence)
-        def create_tgt_sequences(X, y):
-            src = X
-            tgt_input = y[:, :-1]  # All but the last element
-            tgt_target = y[:, 1:]  # All but the first element
-            return src, tgt_input, tgt_target
+        # Create target sequences
+        tgt_input_train, tgt_target_train = create_tgt_sequences(y_train_flat, sequence_length)
+        tgt_input_val, tgt_target_val = create_tgt_sequences(y_val_flat, sequence_length)
 
-        # Ensure y_train and y_val are in the correct shape
-        y_train = y_train.reshape(-1, sequence_length)
-        y_val = y_val.reshape(-1, sequence_length)
-
-        # Create sequences for training
-        src_train, tgt_input_train, tgt_target_train = create_tgt_sequences(X_train, y_train)
-        src_val, tgt_input_val, tgt_target_val = create_tgt_sequences(X_val, y_val)
+        # Adjust X_train and X_val to match the lengths of target sequences
+        X_train = X_train[:len(tgt_input_train)]
+        X_val = X_val[:len(tgt_input_val)]
 
         # Convert to tensors
-        src_train = torch.tensor(src_train, dtype=torch.float32)
+        src_train = torch.tensor(X_train, dtype=torch.float32)
         tgt_input_train = torch.tensor(tgt_input_train, dtype=torch.float32).unsqueeze(-1)
         tgt_target_train = torch.tensor(tgt_target_train, dtype=torch.float32).unsqueeze(-1)
 
-        src_val = torch.tensor(src_val, dtype=torch.float32)
+        src_val = torch.tensor(X_val, dtype=torch.float32)
         tgt_input_val = torch.tensor(tgt_input_val, dtype=torch.float32).unsqueeze(-1)
         tgt_target_val = torch.tensor(tgt_target_val, dtype=torch.float32).unsqueeze(-1)
 
@@ -140,20 +136,18 @@ def train_transformer_model(
         train_dataset = torch.utils.data.TensorDataset(src_train, tgt_input_train, tgt_target_train)
         val_dataset = torch.utils.data.TensorDataset(src_val, tgt_input_val, tgt_target_val)
 
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=batch_size
-        )
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size)
+
+        # Define loss function and optimizer
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
         # Training loop
-        train_losses = []
-        val_losses = []
-
         for epoch in range(epochs):
             model.train()
-            batch_train_losses = []
+            train_losses = []
             for src_batch, tgt_input_batch, tgt_target_batch in train_loader:
                 src_batch = src_batch.to(device)
                 tgt_input_batch = tgt_input_batch.to(device)
@@ -163,16 +157,12 @@ def train_transformer_model(
                 output = model(src_batch, tgt_input_batch)
                 loss = criterion(output, tgt_target_batch)
                 loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                batch_train_losses.append(loss.item())
-
-            average_train_loss = np.mean(batch_train_losses)
-            train_losses.append(average_train_loss)
+                train_losses.append(loss.item())
 
             # Validation step
             model.eval()
-            batch_val_losses = []
+            val_losses = []
             with torch.no_grad():
                 for src_batch, tgt_input_batch, tgt_target_batch in val_loader:
                     src_batch = src_batch.to(device)
@@ -181,16 +171,16 @@ def train_transformer_model(
 
                     output = model(src_batch, tgt_input_batch)
                     loss = criterion(output, tgt_target_batch)
-                    batch_val_losses.append(loss.item())
+                    val_losses.append(loss.item())
 
-            average_val_loss = np.mean(batch_val_losses)
-            val_losses.append(average_val_loss)
+            average_train_loss = np.mean(train_losses)
+            average_val_loss = np.mean(val_losses)
 
             # Adjust the learning rate
             scheduler.step()
 
             logging.info(
-                f"Epoch [{epoch+1}/{epochs}], "
+                f"Epoch [{epoch + 1}/{epochs}], "
                 f"Train Loss: {average_train_loss:.6f}, "
                 f"Val Loss: {average_val_loss:.6f}"
             )
@@ -213,21 +203,19 @@ def train_transformer_model(
         torch.save(model_info, os.path.join(model_save_path, model_name))
 
         # Save the scaler
-        scaler_filename = os.path.join(model_save_path, f'scaler_{model_name.split(".")[0]}.pkl')
+        scaler_filename = os.path.join(model_save_path, f'scaler_{model_name.split('.')[0]}.pkl')
         joblib.dump(scaler, scaler_filename)
 
         logging.info("Transformer model training completed and saved successfully.")
 
-        # Optional: Plot training and validation loss over epochs
-        plt.figure(figsize=(10,5))
-        plt.plot(range(1, epochs+1), train_losses, label='Train Loss')
-        plt.plot(range(1, epochs+1), val_losses, label='Validation Loss')
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.title('Transformer Model Training and Validation Loss')
-        plt.legend()
-        plt.show()
-
     except Exception as e:
         logging.exception("An error occurred during Transformer model training.")
         raise e
+def create_tgt_sequences(y, seq_len):
+    tgt_input = []
+    tgt_target = []
+    for i in range(len(y) - seq_len):
+        tgt_seq = y[i:i + seq_len]
+        tgt_input.append(tgt_seq[:-1])    # Length seq_len - 1
+        tgt_target.append(tgt_seq[1:])    # Length seq_len - 1
+    return np.array(tgt_input), np.array(tgt_target)
