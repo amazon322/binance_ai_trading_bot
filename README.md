@@ -1,7 +1,7 @@
 
 # 🚀 Binance AI Trading Bot
 
-A cutting-edge Binance AI Trading Bot that leverages advanced machine learning models to predict cryptocurrency prices and make smarter trading decisions. This project combines state-of-the-art time series forecasting models (LSTM, CNN-LSTM, GRU, RNN, ARIMA, GARCH, Transformer) with **sentiment analysis** from news articles, ensuring enhanced prediction accuracy.
+A cutting-edge Binance AI Trading Bot that leverages advanced machine learning models to predict cryptocurrency prices and make smarter trading decisions. This project combines state-of-the-art time series forecasting models (LSTM, CNN-LSTM, Transformer, Prophet) with **sentiment analysis** from news articles, ensuring enhanced prediction accuracy.
 
 ---
 
