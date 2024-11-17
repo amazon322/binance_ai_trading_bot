@@ -379,53 +379,44 @@ def predict_with_cnn_lstm(model_info, scaler, input_sequence, forecast_horizon, 
 
         ### Other Functions ###
 
+# utils/model_utils.py
+
 def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizon, device):
     from models.transformer import TimeSeriesTransformer
-    import torch
-    import numpy as np
 
-    # Load model parameters
-    input_size = model_info.get('input_size')
-    sequence_length = model_info.get('sequence_length')
-    state_dict = model_info['state_dict']
-    model_params = model_info.get('model_params')
+    input_size = model_info['input_size']
+    model_params = model_info['model_params']
 
+    # Initialize the model with correct parameters
     model = TimeSeriesTransformer(
         input_size=input_size,
-        num_encoder_layers=model_params.get('num_encoder_layers', 3),
-        num_decoder_layers=model_params.get('num_decoder_layers', 3),
-        dim_model=model_params.get('dim_model', 512),
-        num_heads=model_params.get('num_heads', 8),
-        dim_feedforward=model_params.get('dim_feedforward', 2048),
-        dropout=model_params.get('dropout', 0.1),
+        num_encoder_layers=model_params.get('num_encoder_layers', 2),
+        num_decoder_layers=model_params.get('num_decoder_layers', 2),
+        dim_model=model_params.get('dim_model', 128),
+        num_heads=model_params.get('num_heads', 4),
+        dim_feedforward=model_params.get('dim_feedforward', 256),
+        dropout=model_params.get('dropout', 0.2),
     ).to(device)
 
     model.load_state_dict(model_info['state_dict'])
     model.eval()
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
 
-    # Prepare input sequence
+    predictions = []
     input_seq = input_sequence.copy()
-    input_seq = torch.Tensor(input_seq).float().to(device).permute(1, 0, 2)  # (seq_len, batch_size, features)
-
-    predicted_prices = []
 
     with torch.no_grad():
         for _ in range(forecast_horizon):
-            tgt_input = input_seq[-1:, :, :]  # Last time step
-            output = model(input_seq, tgt_input)
-            prediction = output.cpu().numpy()
-            predicted_prices.append(prediction[-1, 0, 0])  # Assuming output shape is (seq_len, batch_size, 1)
-            # Update input sequence
-            next_input = output[-1:, :, :]
-            input_seq = torch.cat((input_seq, next_input), dim=0)
+            input_tensor = torch.from_numpy(input_seq).float().to(device)
+            pred = model(input_tensor)
+            pred_value = pred.cpu().numpy()[0][0]
+            predictions.append(pred_value)
+            # Append the prediction to the input sequence for the next step
+            next_input = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
+            input_seq = next_input
 
-    # Inverse transform predictions
-    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, 1))
-    predicted_prices = predicted_prices.flatten()
-
+    # Inverse transform the predictions
+    predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+    predicted_prices = predictions.flatten()
     return predicted_prices
 
 # utils/model_utils.py
