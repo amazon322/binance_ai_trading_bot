@@ -28,7 +28,7 @@ from models.lstm import train_lstm_model
 from models.transformer import train_transformer_model
 from models.prophet_model import train_prophet_model
 import joblib
-
+import pytz
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
@@ -310,14 +310,47 @@ def prediction():
                         coin=coin
                     )
                 elif model_type.lower() == 'prophet':
-                    # Load model
+                    import numpy as np
+                    from scipy import stats
+
+                    # Load the Prophet model
                     model = joblib.load(model_file_path)
+
+                    # Prepare data_series
+                    data_series = df[['close']].copy()
+
+                    # Handle the datetime information
+                    if 'timestamp' in df.columns:
+                        data_series['ds'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    else:
+                        data_series['ds'] = pd.to_datetime(df.index)
+
+                    # Remove timezone information
+                    data_series['ds'] = data_series['ds'].dt.tz_localize(None)
+
+                    # Rename 'close' to 'y'
+                    data_series.rename(columns={'close': 'y'}, inplace=True)
+
+                    # Remove anomalies or outliers using Z-score
+                    data_series['z_score'] = np.abs(stats.zscore(data_series['y']))
+                    data_series = data_series[data_series['z_score'] < 3]
+                    data_series.drop('z_score', axis=1, inplace=True)
+
+                    # Optionally, adjust the scale if required (e.g., if prices are in Satoshi)
+                    # Uncomment and adjust divisor if needed
+                    # data_series['y'] = data_series['y'] / 1e8  # Convert from Satoshi to BTC if necessary
+
+                    # Reorder columns
+                    data_series = data_series[['ds', 'y']]
+
                     # Make predictions
                     predicted_prices = predict_with_prophet(
                         model=model,
-                        data_series=df[['ds', 'y']],  # Ensure 'ds' and 'y' columns
+                        data_series=data_series,
                         forecast_horizon=forecast_horizon
                     )
+
+
                 else:
                     flash(f"Prediction for model '{model_type}' is not implemented.")
                     return redirect(url_for('main_routes.prediction'))

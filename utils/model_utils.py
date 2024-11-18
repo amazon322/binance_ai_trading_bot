@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from flask import render_template
 import torch.nn as nn
+import pytz
 def parse_prediction_form(request):
     """
     Extracts and validates form data from the prediction request.
@@ -440,25 +441,35 @@ def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizo
 
 def predict_with_prophet(model, data_series, forecast_horizon):
     import pandas as pd
+    import numpy as np
+    from scipy import stats
 
-    # Determine the last date in the data
-    last_date = data_series.index[-1]
+    # Ensure 'ds' column is timezone-naive
+    data_series['ds'] = data_series['ds'].dt.tz_localize(None)
 
-    # Prepare the future dataframe
-    future_dates = pd.date_range(
-        start=last_date + pd.Timedelta(hours=1),
-        periods=forecast_horizon,
-        freq='H'
-    )
-    future = pd.DataFrame({'ds': future_dates})
+    # Remove anomalies or outliers from data using Z-score
+    data_series['z_score'] = np.abs(stats.zscore(data_series['y']))
+    data_series = data_series[data_series['z_score'] < 3]
+    data_series.drop('z_score', axis=1, inplace=True)
 
-    # Make prediction
+    # Optionally, adjust the scale if required (e.g., if prices are in Satoshi)
+    # Uncomment and adjust divisor if needed
+    # data_series['y'] = data_series['y'] / 1e8  # Convert from Satoshi to BTC if necessary
+
+    # Generate future dates using Prophet's built-in method
+    future = model.make_future_dataframe(periods=forecast_horizon, freq='h')
+
+    # Remove timezone information from future dates
+    future['ds'] = future['ds'].dt.tz_localize(None)
+
+    # Make predictions
     forecast = model.predict(future)
-    predicted_prices = forecast['yhat'].values
+
+    # Extract the forecasted values for the forecast horizon
+    predicted_prices = forecast['yhat'][-forecast_horizon:].values
+
     return predicted_prices
 
-
-# utils/model_utils.py
 
 def generate_prediction_plot(predicted_prices, coin):
     import matplotlib
