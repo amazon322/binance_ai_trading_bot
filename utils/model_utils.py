@@ -388,18 +388,21 @@ def predict_with_transformer(model_info, scaler, input_sequence, forecast_horizo
     input_size = model_info['input_size']
     model_params = model_info['model_params']
 
-    # Initialize the model with correct parameters
+    # Load model info
+    model_info = torch.load(model_file, map_location=device)
+    input_size = model_info['input_size']
+    sequence_length = model_info['sequence_length']
+    # Initialize model
     model = TimeSeriesTransformer(
         input_size=input_size,
-        num_encoder_layers=model_params.get('num_encoder_layers', 2),
-        num_decoder_layers=model_params.get('num_decoder_layers', 2),
-        dim_model=model_params.get('dim_model', 128),
-        num_heads=model_params.get('num_heads', 4),
-        dim_feedforward=model_params.get('dim_feedforward', 256),
-        dropout=model_params.get('dropout', 0.2),
-    ).to(device)
-
-    model.load_state_dict(model_info['state_dict'])
+        dim_model=model_info['dim_model'],
+        num_heads=model_info['num_heads'],
+        num_encoder_layers=model_info['num_encoder_layers'],
+        dim_feedforward=model_info['dim_feedforward'],
+        dropout=model_info['dropout']
+    )
+    model.load_state_dict(model_info['model_state_dict'])
+    model.to(device)
     model.eval()
 
     predictions = []

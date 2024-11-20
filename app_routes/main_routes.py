@@ -81,10 +81,10 @@ def train_model():
 
         if df is not None and not df.empty:
             # Preprocess data
-            data_series = df['close'].values.reshape(-1, 1)
             scaler = MinMaxScaler(feature_range=(0, 1))
+            data_series = df['close'].values.reshape(-1, 1)
             scaled_data = scaler.fit_transform(data_series)
-
+            #scaled_data = scaled_data.reshape(-1)  # Flatten to 1D array
             # Prepare sequences for models that require them
             if model_type.lower() in ['lstm', 'cnn_lstm', 'transformer']:
                 X, y = data_processor.create_sequences(scaled_data, sequence_length)
@@ -129,7 +129,15 @@ def train_model():
                 )
 
             elif model_type.lower() == 'transformer':
-                input_size = X_train.shape[2]  # Number of features
+                # Extract hyperparameters from the form
+                dim_model = int(request.form.get('dim_model', 256))
+                num_encoder_layers = int(request.form.get('num_encoder_layers', 8))
+                dim_feedforward = int(request.form.get('dim_feedforward', 512))
+                num_heads = int(request.form.get('num_heads', 16))
+                dropout = float(request.form.get('dropout', 0.1))
+
+                # Pass hyperparameters to the training function
+                from models.transformer import train_transformer_model
                 train_transformer_model(
                     X_train=X_train,
                     y_train=y_train,
@@ -137,13 +145,13 @@ def train_model():
                     y_val=y_val,
                     epochs=epochs,
                     batch_size=batch_size,
-                    learning_rate=learning_rate,
+                    learning_rate=0.0001,  # Starting learning rate
                     model_save_path=Config.MODEL_SAVE_PATH,
                     model_name=f'{model_type}_{coin}.pth',
-                    scaler=scaler
-                    # Removed 'sequence_length'
+                    scaler=data_processor,
+                    sequence_length=sequence_length,
+                    input_size=X_train.shape[2]
                 )
-
 
 
             elif model_type.lower() == 'prophet':

@@ -3,219 +3,296 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import math
 import os
 import logging
 import numpy as np
-import joblib
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-import logging
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import math
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-
-        # Create positional encoding matrix
+        
+        # Compute positional encodings
         position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, dim_model, 2) * (-math.log(10000.0) / dim_model)
-        )
-        pe = torch.zeros(max_len, dim_model)
-        pe[:, 0::2] = torch.sin(position * div_term)  # Even indices
-        pe[:, 1::2] = torch.cos(position * div_term)  # Odd indices
-
-        pe = pe.unsqueeze(0)  # Add batch dimension
-        self.register_buffer("pe", pe)
+        div_term = torch.exp(torch.arange(0, dim_model, 2) * (-math.log(10000.0) / dim_model))
+        pe = torch.zeros(1, max_len, dim_model)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        
+        # Register buffer to prevent updates during training
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
-        """
-        Args:
-            x: Tensor of shape [batch_size, seq_len, dim_model]
-        """
-        x = x + self.pe[:, : x.size(1), :]
+        # x shape: (batch_size, sequence_length, dim_model)
+        x = x + self.pe[:, :x.size(1), :].to(x.device)
         return self.dropout(x)
 
 class TimeSeriesTransformer(nn.Module):
-    def __init__(self, input_size, num_encoder_layers, num_decoder_layers, dim_model, num_heads, dim_feedforward, dropout):
+    def __init__(
+        self,
+        input_size,
+        dim_model=256,
+        num_heads=16,
+        num_encoder_layers=12,
+        dim_feedforward=1024,
+        dropout=0.2,
+        activation="relu"
+    ):
         super(TimeSeriesTransformer, self).__init__()
-        self.model_type = 'Transformer'
         self.input_size = input_size
         self.dim_model = dim_model
 
+        # Input projection layer
         self.embedding = nn.Linear(input_size, dim_model)
         self.pos_encoder = PositionalEncoding(dim_model, dropout)
-        self.transformer = nn.Transformer(
+        
+        # Transformer Encoder
+        encoder_layers = nn.TransformerEncoderLayer(
             d_model=dim_model,
             nhead=num_heads,
-            num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
-            batch_first=True  # Important: set batch_first=True to align dimensions
+            activation=activation,
+            batch_first=True  # Add this parameter
         )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer=encoder_layers,
+            num_layers=num_encoder_layers
+        )
+        # Output projection layer
         self.fc_out = nn.Linear(dim_model, 1)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, src, tgt):
-        src_emb = self.embedding(src)  # Shape: [batch_size, src_seq_len, dim_model]
-        tgt_emb = self.embedding(tgt)  # Shape: [batch_size, tgt_seq_len, dim_model]
-        
-        src_emb = self.pos_encoder(src_emb)
-        tgt_emb = self.pos_encoder(tgt_emb)
-        
-        output = self.transformer(src_emb, tgt_emb)
-        output = self.fc_out(output)  # Shape: [batch_size, tgt_seq_len, output_size]
+    def forward(self, src):
+        # src shape: (batch_size, sequence_length, input_size)
+        src = self.embedding(src)  # (batch_size, sequence_length, dim_model)
+        src = self.pos_encoder(src)  # (batch_size, sequence_length, dim_model)
+        # No need to permute when batch_first=True
+        output = self.transformer_encoder(src)  # (batch_size, sequence_length, dim_model)
+        output = output[:, -1, :]  # Take the output corresponding to the last time step
+        output = self.fc_out(output)  # (batch_size, 1)
         return output
-
-
-    # models/transformer.py
 
 def train_transformer_model(
     X_train, y_train, X_val, y_val,
     epochs, batch_size, learning_rate,
     model_save_path, model_name,
-    scaler
+    scaler,
+    sequence_length,
+    input_size,
+    hidden_size=256,
+    num_heads=16,
+    num_encoder_layers=12,
+    dim_feedforward=1024,
+    dropout=0.2,
+    device=None
 ):
     try:
         logging.info("Starting Transformer model training...")
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Convert data to tensors
+        X_train = torch.tensor(X_train, dtype=torch.float32)
+        y_train = torch.tensor(y_train, dtype=torch.float32)
+        X_val = torch.tensor(X_val, dtype=torch.float32)
+        y_val = torch.tensor(y_val, dtype=torch.float32)
+        
+        # Ensure y_train and y_val are 1D tensors
+        y_train = y_train.view(-1)
+        y_val = y_val.view(-1)
 
-        input_size = X_train.shape[2]
-        sequence_length = X_train.shape[1]
+        # Create datasets
+        train_dataset = TensorDataset(X_train, y_train)
+        val_dataset = TensorDataset(X_val, y_val)
 
-        # Transformer hyperparameters
-        num_layers = 2
-        dim_model = 128
-        num_heads = 4
-        dim_feedforward = 256
-        dropout = 0.2
+        # Data loaders
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
         # Initialize the model
         model = TimeSeriesTransformer(
             input_size=input_size,
-            num_encoder_layers=num_layers,
-            num_decoder_layers=num_layers,
-            dim_model=dim_model,
+            dim_model=hidden_size,
             num_heads=num_heads,
+            num_encoder_layers=num_encoder_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout
-        ).to(device)
+        )
+        model.to(device)
 
-        # Function to create target sequences
-        def create_tgt_sequences(y, seq_len):
-            tgt_input = []
-            tgt_target = []
-            for i in range(len(y) - seq_len):
-                tgt_input.append(y[i:i + seq_len])
-                tgt_target.append(y[i + 1:i + seq_len + 1])
-            return np.array(tgt_input), np.array(tgt_target)
-
-        # Flatten y_train and y_val
-        y_train_flat = y_train.flatten()
-        y_val_flat = y_val.flatten()
-
-        # Create target sequences
-        tgt_input_train, tgt_target_train = create_tgt_sequences(y_train_flat, sequence_length)
-        tgt_input_val, tgt_target_val = create_tgt_sequences(y_val_flat, sequence_length)
-
-        # Adjust X_train and X_val to match the lengths of target sequences
-        X_train = X_train[:len(tgt_input_train)]
-        X_val = X_val[:len(tgt_input_val)]
-
-        # Convert to tensors
-        src_train = torch.tensor(X_train, dtype=torch.float32)
-        tgt_input_train = torch.tensor(tgt_input_train, dtype=torch.float32).unsqueeze(-1)
-        tgt_target_train = torch.tensor(tgt_target_train, dtype=torch.float32).unsqueeze(-1)
-
-        src_val = torch.tensor(X_val, dtype=torch.float32)
-        tgt_input_val = torch.tensor(tgt_input_val, dtype=torch.float32).unsqueeze(-1)
-        tgt_target_val = torch.tensor(tgt_target_val, dtype=torch.float32).unsqueeze(-1)
-
-        # Prepare datasets and loaders
-        train_dataset = torch.utils.data.TensorDataset(src_train, tgt_input_train, tgt_target_train)
-        val_dataset = torch.utils.data.TensorDataset(src_val, tgt_input_val, tgt_target_val)
-
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size)
-
-        # Define loss function and optimizer
-        criterion = nn.MSELoss()
+        # Define optimizer and loss function
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        criterion = nn.MSELoss()
+
+        # Initialize learning rate scheduler
+        scheduler = get_lr_scheduler(optimizer, epochs)
+
+        # Variables for early stopping and best model saving
+        best_val_loss = float('inf')
+        patience = 10
+        counter = 0
 
         # Training loop
         for epoch in range(epochs):
             model.train()
-            train_losses = []
-            for src_batch, tgt_input_batch, tgt_target_batch in train_loader:
-                src_batch = src_batch.to(device)
-                tgt_input_batch = tgt_input_batch.to(device)
-                tgt_target_batch = tgt_target_batch.to(device)
+            batch_train_losses = []
+            for X_batch, y_batch in train_loader:
+                X_batch = X_batch.to(device)
+                y_batch = y_batch.to(device)
 
                 optimizer.zero_grad()
-                output = model(src_batch, tgt_input_batch)
-                loss = criterion(output, tgt_target_batch)
+                outputs = model(X_batch)  # outputs shape: (batch_size, 1)
+                outputs = outputs.view(-1)  # reshape to (batch_size)
+                loss = criterion(outputs, y_batch)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
                 optimizer.step()
-                train_losses.append(loss.item())
+                batch_train_losses.append(loss.item())
 
-            # Validation step
+            average_train_loss = np.mean(batch_train_losses)
+
+            # Validation loop
             model.eval()
-            val_losses = []
+            batch_val_losses = []
+            correct_direction = []
             with torch.no_grad():
-                for src_batch, tgt_input_batch, tgt_target_batch in val_loader:
-                    src_batch = src_batch.to(device)
-                    tgt_input_batch = tgt_input_batch.to(device)
-                    tgt_target_batch = tgt_target_batch.to(device)
+                for X_batch, y_batch in val_loader:
+                    X_batch = X_batch.to(device)
+                    y_batch = y_batch.to(device)
+                    outputs = model(X_batch)
+                    outputs = outputs.view(-1)
 
-                    output = model(src_batch, tgt_input_batch)
-                    loss = criterion(output, tgt_target_batch)
-                    val_losses.append(loss.item())
+                    loss = criterion(outputs, y_batch)
+                    batch_val_losses.append(loss.item())
 
-            average_train_loss = np.mean(train_losses)
-            average_val_loss = np.mean(val_losses)
+                    # Directional accuracy
+                    y_prev = X_batch[:, -1, 0]  # Assuming the first feature is the target variable
+                    y_true_change = y_batch - y_prev
+                    y_pred_change = outputs - y_prev
+                    direction = (torch.sign(y_true_change) == torch.sign(y_pred_change)).float()
+                    correct_direction.extend(direction.cpu().numpy())
 
-            # Adjust the learning rate
+            average_val_loss = np.mean(batch_val_losses)
+            directional_accuracy = np.mean(correct_direction)
+
+            # Scheduler step
             scheduler.step()
 
             logging.info(
-                f"Epoch [{epoch + 1}/{epochs}], "
+                f"Epoch [{epoch+1}/{epochs}], "
                 f"Train Loss: {average_train_loss:.6f}, "
-                f"Val Loss: {average_val_loss:.6f}"
+                f"Val Loss: {average_val_loss:.6f}, "
+                f"Directional Accuracy: {directional_accuracy:.2%}"
             )
 
-        # Save the trained model information
-        model_info = {
-            "input_size": input_size,
-            "sequence_length": sequence_length,
-            "state_dict": model.state_dict(),
-            "model_params": {
-                "num_encoder_layers": num_layers,
-                "num_decoder_layers": num_layers,
-                "dim_model": dim_model,
-                "num_heads": num_heads,
-                "dim_feedforward": dim_feedforward,
-                "dropout": dropout,
-            },
-        }
-        os.makedirs(model_save_path, exist_ok=True)
-        torch.save(model_info, os.path.join(model_save_path, model_name))
+            # Check for improvement
+            if average_val_loss < best_val_loss:
+                best_val_loss = average_val_loss
+                counter = 0
+                # Save the best model
+                os.makedirs(model_save_path, exist_ok=True)
+                torch.save({
+                    'model_state_dict': model.state_dict(),
+                    'input_size': model.input_size,
+                    'dim_model': model.dim_model,
+                    'num_heads': num_heads,
+                    'num_encoder_layers': num_encoder_layers,
+                    'dim_feedforward': dim_feedforward,
+                    'dropout': dropout,
+                    'sequence_length': sequence_length
+                }, os.path.join(model_save_path, f'best_{model_name}'))
+                logging.info(f"Saved best model at epoch {epoch+1}")
+            else:
+                counter += 1
+                if counter >= patience:
+                    logging.info("Early stopping triggered")
+                    break
+
+        # Load the best model after training
+        best_model_path = os.path.join(model_save_path, f'best_{model_name}')
+        model.load_state_dict(torch.load(best_model_path)['model_state_dict'])
+
+        # Save the final model
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'input_size': model.input_size,
+            'dim_model': model.dim_model,
+            'num_heads': num_heads,
+            'num_encoder_layers': num_encoder_layers,
+            'dim_feedforward': dim_feedforward,
+            'dropout': dropout,
+            'sequence_length': sequence_length
+        }, os.path.join(model_save_path, model_name))
+        logging.info("Transformer model training completed and saved successfully.")
 
         # Save the scaler
-        scaler_filename = os.path.join(model_save_path, f'scaler_{model_name.split('.')[0]}.pkl')
+        scaler_filename = os.path.join(model_save_path, f'scaler_transformer_{model_name}.pkl')
+        import joblib
         joblib.dump(scaler, scaler_filename)
-
-        logging.info("Transformer model training completed and saved successfully.")
 
     except Exception as e:
         logging.exception("An error occurred during Transformer model training.")
         raise e
-def create_tgt_sequences(y, seq_len):
-    tgt_input = []
-    tgt_target = []
-    for i in range(len(y) - seq_len):
-        tgt_seq = y[i:i + seq_len]
-        tgt_input.append(tgt_seq[:-1])    # Length seq_len - 1
-        tgt_target.append(tgt_seq[1:])    # Length seq_len - 1
-    return np.array(tgt_input), np.array(tgt_target)
+
+def get_lr_scheduler(optimizer, epochs, lr_start=0.0001, lr_max=0.005, lr_min=0.00001, lr_ramp_ep=30, lr_sus_ep=0):
+    def lr_lambda(epoch):
+        if epoch < lr_ramp_ep:
+            lr = (lr_max - lr_start) / lr_ramp_ep * epoch + lr_start
+        elif epoch < lr_ramp_ep + lr_sus_ep:
+            lr = lr_max
+        else:
+            decay_total_epochs = epochs - lr_ramp_ep - lr_sus_ep
+            decay_epoch_index = epoch - lr_ramp_ep - lr_sus_ep
+            phase = math.pi * decay_epoch_index / decay_total_epochs
+            lr = lr_min + 0.5 * (lr_max - lr_min) * (1 + math.cos(phase))
+        return lr / lr_max  # Normalize by max learning rate
+
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    return scheduler
+
+def evaluate_transformer_model(model, test_loader, device):
+    model.eval()
+    y_true_list = []
+    y_pred_list = []
+    correct_direction = []
+    with torch.no_grad():
+        for X_batch, y_batch in test_loader:
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            outputs = model(X_batch)
+            outputs = outputs.view(-1)
+
+            y_true_list.extend(y_batch.cpu().numpy())
+            y_pred_list.extend(outputs.cpu().numpy())
+
+            # Directional accuracy
+            y_prev = X_batch[:, -1, 0]
+            y_true_change = y_batch - y_prev
+            y_pred_change = outputs - y_prev
+            direction = (torch.sign(y_true_change) == torch.sign(y_pred_change)).float()
+            correct_direction.extend(direction.cpu().numpy())
+
+    y_true = np.array(y_true_list)
+    y_pred = np.array(y_pred_list)
+    directional_accuracy = np.mean(correct_direction)
+
+    mse = mean_squared_error(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(y_true, y_pred)
+
+    logging.info(f"Test MSE: {mse:.6f}")
+    logging.info(f"Test MAE: {mae:.6f}")
+    logging.info(f"Test RMSE: {rmse:.6f}")
+    logging.info(f"Test R-squared: {r2:.6f}")
+    logging.info(f"Directional Accuracy: {directional_accuracy:.2%}")
+
+    return mse, mae, rmse, r2, directional_accuracy

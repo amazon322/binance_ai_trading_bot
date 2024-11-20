@@ -39,6 +39,7 @@ class DataLoader:
         # Convert 'timestamp' to datetime and set as index
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
+        
 
         # Convert all columns to numeric types
         df = df.apply(pd.to_numeric, errors='coerce')

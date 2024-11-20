@@ -70,8 +70,23 @@
 
     <!-- For Transformer model, you might allow users to specify num_heads -->
     <div class="form-group">
-        <label for="num_heads">Number of Heads (Transformer)</label>
-        <input type="number" class="form-control" id="num_heads" name="num_heads" value="8">
+        <label for="dim_model">Model Dimension (dim_model)</label>
+        <input type="number" class="form-control" id="dim_model" name="dim_model" value="256" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="num_encoder_layers">Number of Encoder Layers</label>
+        <input type="number" class="form-control" id="num_encoder_layers" name="num_encoder_layers" value="4" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="dim_feedforward">Feedforward Dimension</label>
+        <input type="number" class="form-control" id="dim_feedforward" name="dim_feedforward" value="512" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="num_heads">Number of Heads</label>
+        <input type="number" class="form-control" id="num_heads" name="num_heads" value="8" required>
     </div>
 
     <!-- Prophet model does not require sequence length or other hyperparameters -->

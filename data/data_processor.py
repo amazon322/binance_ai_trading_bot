@@ -11,7 +11,6 @@ class DataProcessor:
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
     def preprocess_data(self, df):
-        # Existing preprocessing steps
         if df.empty:
             logger.error("DataFrame is empty.")
             return None
@@ -22,13 +21,22 @@ class DataProcessor:
         # Adding technical indicators
         df = self.add_technical_indicators(df)
 
-        # Selecting the features for training (including technical indicators)
-        feature_columns = df.columns.tolist()  # Use all columns or specify specific ones
+        # Selecting the features for training
+        feature_columns = df.columns.tolist()
         data = df[feature_columns].values
 
-        # Scale the data
-        scaled_data = self.scaler.fit_transform(data)
-        return scaled_data
+        # Z-score normalization
+        mean = np.mean(data, axis=0)
+        std = np.std(data, axis=0)
+        std[std == 0] = 1  # Avoid division by zero
+        normalized_data = (data - mean) / std
+
+        # Store mean and std for inverse transformations if needed
+        self.mean = mean
+        self.std = std
+
+        return normalized_data
+
 
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
@@ -38,10 +46,12 @@ class DataProcessor:
         y = []
         for i in range(len(data) - sequence_length - forecast_horizon + 1):
             X.append(data[i:(i + sequence_length)])
+            # **Shift labels to predict the next time step**
             y.append(data[(i + sequence_length):(i + sequence_length + forecast_horizon)])
         X = np.array(X)
         y = np.array(y)
         return X, y
+
 
     def split_data(self, X, y, train_size=0.8):
         split_index = int(len(X) * train_size)
@@ -84,6 +94,19 @@ class DataProcessor:
             bollinger = ta.volatility.BollingerBands(close=data['close'], window=20)
             data['bb_h'] = bollinger.bollinger_hband()
             data['bb_l'] = bollinger.bollinger_lband()
+            
+            # **Add Bollinger Band Width**
+            data['bb_width'] = data['bb_h'] - data['bb_l']
+
+            # **Add Rate of Change (ROC)**
+            data['roc'] = ta.momentum.ROCIndicator(close=data['close'], window=14).roc()
+            # Close Price Difference
+            data['close_diff'] = data['close'].diff()
+            data['close_diff'].fillna(0, inplace=True)
+
+            # Percent Change in Close Price
+            data['percent_change_close'] = data['close'].pct_change() * 100
+            data['percent_change_close'].fillna(0, inplace=True)
 
             # Handling NaN values after adding indicators
             data.bfill(inplace=True)
