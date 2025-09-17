@@ -77,10 +77,20 @@ async def main():
                 if status != "OK":
                     logger.info(f"{symbol} NO_TRADE: price gate diff={diff:.2f}%"); continue
 
-                bids, asks = broker.fetch_l2(symbol, limit=100)
-                mid = 0.5 * (bids[0][0] + asks[0][0]) if bids and asks else None
+                try:
+                    bids, asks = broker.fetch_l2(symbol, limit=100)
+                except Exception as e:
+                    logger.error(f"{symbol} NO_TRADE: fetch_l2 failed: {e}")
+                    continue
+
+                if not isinstance(bids, list) or not isinstance(asks, list) or not bids or not asks or not isinstance(bids[0], (list, tuple)) or not isinstance(asks[0], (list, tuple)):
+                    logger.error(f"{symbol} NO_TRADE: malformed L2 data: bids={bids}, asks={asks}")
+                    continue
+
+                mid = 0.5 * (bids[0][0] + asks[0][0])
                 if not depth_guard(bids, asks, mid, window_pct=DEPTH_WINDOW_PCT):
-                    logger.info(f"{symbol} NO_TRADE: insufficient L2 depth"); continue
+                    logger.info(f"{symbol} NO_TRADE: insufficient L2 depth")
+                    continue
 
                 if side == "flat":
                     logger.info(f"{symbol} WAIT conf={conf:.2f}")
