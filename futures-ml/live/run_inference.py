@@ -92,7 +92,7 @@ async def main():
                     logger.info(f"{symbol} WAIT conf={conf:.2f}")
                     continue
 
-                tp, sl = dynamic_tp_sl(entry=entry, atr=atr, side=("buy" if side=="buy" else "sell"))
+                tp, sl = dynamic_tp_sl(entry=entry, atr=atr, side=side)
                 qty = position_size(equity_usdt, RISK_PCT, entry, sl)
                 if qty <= 0:
                     logger.info(f"{symbol} NO_TRADE: qty=0"); continue
