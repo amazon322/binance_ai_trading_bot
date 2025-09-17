@@ -3,12 +3,14 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import ta  # Technical Analysis library
 import logging
+from utils.data_cache import cached
 
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
     def __init__(self):
         self.scaler = MinMaxScaler(feature_range=(0, 1))
+        self._technical_indicators_cache = {}
 
     def preprocess_data(self, df):
         if df.empty:
@@ -61,60 +63,72 @@ class DataProcessor:
 
     def add_technical_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Add technical indicators to the DataFrame.
+        Add technical indicators to the DataFrame with caching.
         """
         try:
+            # Create cache key based on data hash
+            data_hash = hash(str(data[['open', 'high', 'low', 'close', 'volume']].values.tobytes()))
+            cache_key = f"technical_indicators_{data_hash}"
+            
+            if cache_key in self._technical_indicators_cache:
+                logger.debug("Using cached technical indicators")
+                return self._technical_indicators_cache[cache_key]
+            
             logger.debug("Adding technical indicators.")
 
-            # Moving Averages
-            data['ma5'] = data['close'].rolling(window=5).mean()
-            data['ma10'] = data['close'].rolling(window=10).mean()
-            data['ma20'] = data['close'].rolling(window=20).mean()
+            # Create a copy to avoid modifying original data
+            data_copy = data.copy()
+
+            # Moving Averages - optimized with vectorized operations
+            data_copy['ma5'] = data_copy['close'].rolling(window=5, min_periods=1).mean()
+            data_copy['ma10'] = data_copy['close'].rolling(window=10, min_periods=1).mean()
+            data_copy['ma20'] = data_copy['close'].rolling(window=20, min_periods=1).mean()
 
             # Exponential Moving Average
-            data['ema50'] = data['close'].ewm(span=50, adjust=False).mean()
+            data_copy['ema50'] = data_copy['close'].ewm(span=50, adjust=False, min_periods=1).mean()
 
             # Stochastic Oscillator
             stochastic = ta.momentum.StochasticOscillator(
-                high=data['high'], low=data['low'], close=data['close'], window=14
+                high=data_copy['high'], low=data_copy['low'], close=data_copy['close'], window=14
             )
-            data['stochastic_k'] = stochastic.stoch()
+            data_copy['stochastic_k'] = stochastic.stoch()
 
             # Relative Strength Index (RSI)
-            rsi = ta.momentum.RSIIndicator(close=data['close'], window=14)
-            data['rsi'] = rsi.rsi()
+            rsi = ta.momentum.RSIIndicator(close=data_copy['close'], window=14)
+            data_copy['rsi'] = rsi.rsi()
 
             # Moving Average Convergence Divergence (MACD)
-            macd = ta.trend.MACD(close=data['close'])
-            data['macd'] = macd.macd()
-            data['macd_diff'] = macd.macd_diff()
-            data['macd_signal'] = macd.macd_signal()
+            macd = ta.trend.MACD(close=data_copy['close'])
+            data_copy['macd'] = macd.macd()
+            data_copy['macd_diff'] = macd.macd_diff()
+            data_copy['macd_signal'] = macd.macd_signal()
 
             # Bollinger Bands
-            bollinger = ta.volatility.BollingerBands(close=data['close'], window=20)
-            data['bb_h'] = bollinger.bollinger_hband()
-            data['bb_l'] = bollinger.bollinger_lband()
+            bollinger = ta.volatility.BollingerBands(close=data_copy['close'], window=20)
+            data_copy['bb_h'] = bollinger.bollinger_hband()
+            data_copy['bb_l'] = bollinger.bollinger_lband()
             
-            # **Add Bollinger Band Width**
-            data['bb_width'] = data['bb_h'] - data['bb_l']
+            # Bollinger Band Width
+            data_copy['bb_width'] = data_copy['bb_h'] - data_copy['bb_l']
 
-            # **Add Rate of Change (ROC)**
-            data['roc'] = ta.momentum.ROCIndicator(close=data['close'], window=14).roc()
+            # Rate of Change (ROC)
+            data_copy['roc'] = ta.momentum.ROCIndicator(close=data_copy['close'], window=14).roc()
+            
             # Close Price Difference
-            data['close_diff'] = data['close'].diff()
-            data['close_diff'].fillna(0, inplace=True)
+            data_copy['close_diff'] = data_copy['close'].diff()
+            data_copy['close_diff'].fillna(0, inplace=True)
 
             # Percent Change in Close Price
-            data['percent_change_close'] = data['close'].pct_change() * 100
-            data['percent_change_close'].fillna(0, inplace=True)
+            data_copy['percent_change_close'] = data_copy['close'].pct_change() * 100
+            data_copy['percent_change_close'].fillna(0, inplace=True)
 
-            # Handling NaN values after adding indicators
-            data.bfill(inplace=True)
-            data.ffill(inplace=True)
+            # Handling NaN values after adding indicators - more efficient
+            data_copy = data_copy.fillna(method='bfill').fillna(method='ffill')
 
-
-            logger.info("Technical indicators added.")
-            return data
+            # Cache the result
+            self._technical_indicators_cache[cache_key] = data_copy
+            logger.info("Technical indicators added and cached.")
+            return data_copy
 
         except Exception as e:
             logger.exception("Error adding technical indicators.")

@@ -31,4 +31,24 @@ class Config:
     ALERT_EMAIL = os.getenv('ALERT_EMAIL')
     ALERT_SMS = os.getenv('ALERT_SMS')
 
-    # Other settings...
+    # Performance optimization settings
+    ENABLE_MODEL_CACHING = True
+    ENABLE_DATA_CACHING = True
+    CACHE_TTL_SECONDS = 300  # 5 minutes
+    MAX_CACHE_SIZE = 100  # Maximum number of cached items
+    
+    # Model loading settings
+    MODEL_LOAD_TIMEOUT = 30  # seconds
+    ENABLE_MODEL_PRELOADING = True
+    
+    # Data processing settings
+    BATCH_SIZE = 32
+    MAX_WORKERS = 4
+    
+    # Memory management
+    ENABLE_MEMORY_MONITORING = True
+    MAX_MEMORY_USAGE_PERCENT = 80
+    
+    # Logging settings
+    LOG_LEVEL = 'INFO'
+    ENABLE_PERFORMANCE_LOGGING = True
