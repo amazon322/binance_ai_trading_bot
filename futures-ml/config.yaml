@@ -1,0 +1,18 @@
+data:
+  timeframe: "${TIMEFRAME:5m}"
+  lookback: ${LOOKBACK:128}
+
+risk:
+  risk_pct: ${RISK_PCT:0.005}
+  tp_k: 1.5
+  sl_k: 1.0
+  max_open_trades: ${MAX_OPEN_TRADES:10}
+  dedup_hours: ${DEDUP_HOURS:24}
+
+gate:
+  price_gate_pct: ${PRICE_GATE_PCT:0.3}
+  spread_guard_pct: ${SPREAD_GUARD_PCT:0.25}
+  depth_window_pct: ${DEPTH_WINDOW_PCT:0.3}
+
+symbols:
+  list: ${SYMBOLS:BTC/USDT,ETH/USDT}
