@@ -6,7 +6,7 @@ def price_gate(mark_price: float, ref_price: float, threshold_pct: float = 0.3):
     return ("OK" if diff <= threshold_pct else "ALERT"), diff
 
 def liquidity_guard(spread_pct: float, max_spread_pct: float = 0.25):
-    return spread_pct is not None and spread_pct * 100 <= max_spread_pct
+    return spread_pct is not None and spread_pct <= max_spread_pct
 
 def depth_guard(bids, asks, mid, window_pct=0.3):
     if not bids or not asks or mid is None:
