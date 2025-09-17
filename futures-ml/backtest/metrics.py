@@ -26,5 +26,5 @@ def calculate_win_rate(trades):
     """
     if len(trades) == 0:
         return 0.0
-    winning_trades = sum(1 for trade in trades if trade['pnl'] > 0)
+    winning_trades = sum(bool(trade['pnl'] > 0)
     return winning_trades / len(trades)
