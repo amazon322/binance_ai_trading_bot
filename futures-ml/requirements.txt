@@ -1,7 +1,7 @@
 ccxt==4.4.58
 pandas==2.2.2
 numpy==1.26.4
-torch==2.3.1
+torch==2.8.0
 pyyaml==6.0.2
 python-telegram-bot==21.4
 uvloop==0.20.0
