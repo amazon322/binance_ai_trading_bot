@@ -1,26 +1,31 @@
 from utils.binance_api import BinanceAPI
+from utils.data_cache import cached
 import pandas as pd
 import numpy as np
 import os
 from scipy import stats  # For z-score calculation
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DataLoader:
     def __init__(self):
         self.api = BinanceAPI()
 
+    @cached(ttl=60)  # Cache for 1 minute
     def get_historical_data(self, symbol, interval, start_str, end_str=None):
         try:
             klines = self.api.get_historical_klines(symbol, interval, start_str, end_str)
-            print(f"Received {len(klines)} klines")
+            logger.info(f"Received {len(klines)} klines for {symbol}")
             if klines:
-                print(f"First kline data: {klines[0]}")
+                logger.debug(f"First kline data: {klines[0]}")
                 df = self.convert_to_dataframe(klines)
                 return df
             else:
-                print("No data retrieved.")
+                logger.warning("No data retrieved.")
                 return None
         except Exception as e:
-            print(f"Exception occurred while fetching data: {e}")
+            logger.error(f"Exception occurred while fetching data: {e}")
             return None
 
 

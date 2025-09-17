@@ -301,7 +301,7 @@ def prepare_input_sequence(data_series, scaler, sequence_length):
 
 def make_multi_step_predictions(model, input_sequence, scaler, forecast_horizon, device):
     """
-    Makes multi-step predictions using the provided model.
+    Makes multi-step predictions using the provided model with optimized batch processing.
 
     Parameters:
     - model (torch.nn.Module): The PyTorch model to use for predictions.
@@ -316,17 +316,28 @@ def make_multi_step_predictions(model, input_sequence, scaler, forecast_horizon,
     predictions = []
     input_seq = input_sequence.copy()
 
+    # Optimize for batch processing when possible
+    batch_size = min(forecast_horizon, 32)  # Process in batches for better performance
+    
     with torch.no_grad():
-        for _ in range(forecast_horizon):
-            input_tensor = torch.from_numpy(input_seq).float().to(device)
-            pred = model(input_tensor)
-            pred_value = pred.cpu().numpy()[0][0]
-            predictions.append(pred_value)
-            # Update input sequence
-            input_seq = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
+        for i in range(0, forecast_horizon, batch_size):
+            current_batch_size = min(batch_size, forecast_horizon - i)
+            batch_predictions = []
+            
+            for j in range(current_batch_size):
+                input_tensor = torch.from_numpy(input_seq).float().to(device)
+                pred = model(input_tensor)
+                pred_value = pred.cpu().numpy()[0][0]
+                batch_predictions.append(pred_value)
+                
+                # Update input sequence for next prediction
+                input_seq = np.append(input_seq[:, 1:, :], [[[pred_value]]], axis=1)
+            
+            predictions.extend(batch_predictions)
 
-    # Inverse transform predictions
-    predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+    # Inverse transform predictions in batch
+    predictions_array = np.array(predictions).reshape(-1, 1)
+    predictions = scaler.inverse_transform(predictions_array)
     predicted_prices = predictions.flatten()
     return predicted_prices
 

@@ -1,4 +1,5 @@
 Flask
+Flask-Compress
 pandas
 numpy
 torch
@@ -7,3 +8,10 @@ arch
 binance-python
 scikit-learn
 ta
+joblib
+python-dotenv
+requests
+beautifulsoup4
+transformers
+matplotlib
+scipy

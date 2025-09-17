@@ -13,6 +13,8 @@ from utils.model_utils import (
     generate_prediction_plot,
     render_prediction_result
 )
+from utils.model_cache import model_cache
+from utils.data_cache import data_cache
 # Import torch and other necessary libraries
 import torch
 import numpy as np
@@ -234,10 +236,14 @@ def prediction():
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
                 if model_type.lower() == 'lstm':
-                    # Load scaler
-                    scaler = joblib.load(scaler_file)
-                    # Load model_info
-                    model_info = torch.load(model_file_path, map_location=device)
+                    # Use cached model and scaler
+                    model_info = model_cache.get_model(model_type, coin, Config.MODEL_SAVE_PATH)
+                    scaler = model_cache.get_scaler(model_type, coin, Config.MODEL_SAVE_PATH)
+                    
+                    if model_info is None or scaler is None:
+                        flash(f"Failed to load {model_type.upper()} model for {coin}. Please retrain the model.")
+                        return redirect(url_for('main_routes.prediction'))
+                    
                     input_size = model_info['input_size']
                     sequence_length = model_info['sequence_length']
                     # Prepare input sequence
@@ -255,11 +261,14 @@ def prediction():
                         device=device
                     )
                 elif model_type.lower() == 'cnn_lstm':
-                    # Load scaler
-                    scaler = joblib.load(scaler_file)
-
-                    # Load model info
-                    model_info = torch.load(model_file_path, map_location=device)
+                    # Use cached model and scaler
+                    model_info = model_cache.get_model(model_type, coin, Config.MODEL_SAVE_PATH)
+                    scaler = model_cache.get_scaler(model_type, coin, Config.MODEL_SAVE_PATH)
+                    
+                    if model_info is None or scaler is None:
+                        flash(f"Failed to load {model_type.upper()} model for {coin}. Please retrain the model.")
+                        return redirect(url_for('main_routes.prediction'))
+                    
                     input_size = model_info['input_size']
                     sequence_length = model_info['sequence_length']
 
@@ -283,15 +292,13 @@ def prediction():
                 elif model_type.lower() == 'transformer':
                     from models.transformer import TimeSeriesTransformer  # Ensure correct import
 
-                    # Load the scaler
-                    scaler_file = os.path.join(Config.MODEL_SAVE_PATH, f'scaler_{model_type}_{coin}.pkl')
-                    if not os.path.exists(scaler_file):
-                        flash("Scaler file not found. Please retrain the model.")
-                        return redirect(url_for('main_routes.train_model'))
-                    scaler = joblib.load(scaler_file)
-
-                    # Load model info
-                    model_info = torch.load(model_file_path, map_location=device)
+                    # Use cached model and scaler
+                    model_info = model_cache.get_model(model_type, coin, Config.MODEL_SAVE_PATH)
+                    scaler = model_cache.get_scaler(model_type, coin, Config.MODEL_SAVE_PATH)
+                    
+                    if model_info is None or scaler is None:
+                        flash(f"Failed to load {model_type.upper()} model for {coin}. Please retrain the model.")
+                        return redirect(url_for('main_routes.prediction'))
 
                     # Scale data
                     scaled_data = scaler.transform(data_series)
@@ -304,7 +311,6 @@ def prediction():
 
                     input_sequence = scaled_data[-sequence_length:]
                     input_sequence = np.expand_dims(input_sequence, axis=0)
-
 
                     # Make predictions
                     predicted_prices = make_predictions(
@@ -321,8 +327,11 @@ def prediction():
                     import numpy as np
                     from scipy import stats
 
-                    # Load the Prophet model
-                    model = joblib.load(model_file_path)
+                    # Use cached Prophet model
+                    model = model_cache.get_model(model_type, coin, Config.MODEL_SAVE_PATH)
+                    if model is None:
+                        flash(f"Failed to load {model_type.upper()} model for {coin}. Please retrain the model.")
+                        return redirect(url_for('main_routes.prediction'))
 
                     # Prepare data_series
                     data_series = df[['close']].copy()
