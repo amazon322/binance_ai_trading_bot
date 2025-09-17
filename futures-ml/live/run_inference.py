@@ -35,7 +35,13 @@ async def main():
     tg = TGBot()
     broker = BinanceUSDM(key=os.getenv("BINANCE_KEY"), secret=os.getenv("BINANCE_SECRET"), testnet=TESTNET)
     model = HybridModel(in_features=len(FEATURES))
-    model.eval()  # TODO: зареди тежести ако имаш: model.load_state_dict(torch.load(...))
+    weights_path = os.getenv("MODEL_WEIGHTS_PATH", "model_weights.pth")
+    if not os.path.isfile(weights_path):
+        logger.error(f"Model weights file not found: {weights_path}. Aborting to prevent trading with untrained model.")
+        raise FileNotFoundError(f"Model weights file not found: {weights_path}")
+    state_dict = torch.load(weights_path, map_location=torch.device('cpu'))
+    model.load_state_dict(state_dict)
+    model.eval()
     equity_usdt = 1000.0
 
     while True:
