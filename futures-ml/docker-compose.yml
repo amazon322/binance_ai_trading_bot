@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  app:
+    image: python:3.11-slim
+    working_dir: /app
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+    command: bash -lc "pip install -r requirements.txt && python live/run_inference.py"
+    env_file:
+      - .env
+    restart: unless-stopped
