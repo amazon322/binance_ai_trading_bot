@@ -5,7 +5,7 @@ numpy
 torch
 statsmodels
 arch
-binance-python
+python-binance
 scikit-learn
 ta
 joblib
@@ -15,3 +15,4 @@ beautifulsoup4
 transformers
 matplotlib
 scipy
+prophet
